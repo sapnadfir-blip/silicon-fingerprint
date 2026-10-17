@@ -258,7 +258,7 @@
                             <th>Median Latency</th>
                             <th>IQR (Spread)</th>
                             <th>Jitter (StdDev)</th>
-                            <th>Normalized Ratio</th>
+                            <th>Incremental Diff (ΔL)</th>
                         </tr>
                     </thead>
                     <tbody id="contentionTableBody"></tbody>
@@ -406,8 +406,9 @@
                 // Render contention curve table
                 const tbody = document.getElementById('contentionTableBody');
                 tbody.innerHTML = '';
+                const diffs = profile.contentionSummary.incrementalDifferencesMs;
                 profile.contentionSummary.scaleProfiles.forEach((scale, idx) => {
-                    const ratio = profile.contentionSummary.normalizedScaleRatios[idx];
+                    const diffText = idx === 0 ? 'Baseline' : `+${diffs[idx - 1].toFixed(2)} ms`;
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td style="font-weight: 600;">${scale.workgroups}</td>
@@ -416,7 +417,7 @@
                         <td style="font-family: monospace; color: #38bdf8; font-weight: 600;">${scale.medianMs.toFixed(2)} ms</td>
                         <td style="font-family: monospace;">${scale.iqrMs.toFixed(2)} ms</td>
                         <td style="font-family: monospace;">±${scale.stdDevMs.toFixed(2)} ms</td>
-                        <td style="font-family: monospace; color: #34d399; font-weight: 600;">${ratio.toFixed(2)}x</td>
+                        <td style="font-family: monospace; color: #34d399; font-weight: 600;">${diffText}</td>
                     `;
                     tbody.appendChild(tr);
                 });

@@ -82,18 +82,21 @@ When 64 workgroups are dispatched concurrently, thread 0 of each workgroup races
 
 By copying `arrival` to a `MAP_READ` staging buffer and reading it back via `mapAsync()`, our engine collects the arrival order across $N = 32$ iterations. For each workgroup $w \in [0, 63]$, we calculate the mean arrival rank $\bar{r}_w = \frac{1}{N}\sum_{i=1}^N \text{rank}_{i, w}$, yielding a normalized 64-dimensional in-shader scheduling profile that reflects physical warp arbiter scheduling biases.
 
-### 2.3 Contention Scaling & Overcoming Timer Coarsening
-In addition to in-shader scheduling, we measure inter-workgroup memory contention across multiple scales ($W \in \{16, 64, 128, 256\}$) using 30 interleaved dispatches per scale. To eliminate constant browser-level IPC overheads, we compute **normalized shape ratios**:
+### 2.3 Contention Scaling & Separating Additive Software Constants
+In addition to in-shader scheduling, we measure inter-workgroup memory contention across multiple scales ($W \in \{16, 64, 128, 256\}$) using 30 interleaved dispatches per scale.
 
-$$R_k = \frac{\text{median}(L_k)}{\text{median}(L_{16})}, \quad k \in \{16, 64, 128, 256\}$$
+Browser-level constant overheads (such as JavaScript execution, driver submission, and IPC to the GPU process) introduce an **additive constant** $c$:
+$$\text{Latency}(W) = m \cdot W + c$$
+Simple ratios $\frac{L_{\text{scale}}}{L_{\text{baseline}}}$ fail to cancel additive constants because $\frac{a + c}{b + c} \neq \frac{a}{b}$. To eliminate additive software overhead and isolate pure hardware scaling:
+1. We compute **incremental differences** between successive scales: $\Delta L_k = \text{median}(L_k) - \text{median}(L_{k-1})$.
+2. We fit an **Ordinary Least Squares (OLS) regression line** across scales, where the intercept $c$ captures browser/OS IPC overhead and the slope $m$ captures execution unit throughput saturation.
 
-Modern browsers coarsen `performance.now()` to 100 µs (Chrome) or 1 ms (Safari). By executing 48 atomic memory contention loops per thread, dispatches run in the 5 ms to 25 ms window, ensuring that 100 µs quantization represents $< 1.0\%$ measurement noise.
-
-### 2.4 Active Defense & Environment Auditing (No UA Sniffing)
+### 2.4 Active Defense & Environment Auditing
 Unlike prior tools that rely on fragile User-Agent sniffing, our profiler actively measures defensive capabilities:
 1. **Empirical Timer Resolution:** Directly measures the minimum non-zero delta of `performance.now()` over repeated samples rather than assuming default values.
-2. **Active Canvas Farbling Detection:** Performs two consecutive renders of a complex 2D canvas; if the resulting data URLs differ, active canvas randomization (e.g. Brave Shields or privacy extensions) is confirmed.
-3. **Power State Control:** Reads battery charging state and level via `navigator.getBattery()` to control for Dynamic Voltage and Frequency Scaling (DVFS) and thermal throttling.
+2. **Canvas State & Farbling Analysis:** Recognizes that modern farbling (e.g., Brave Shields) is session-stable and origin-keyed. The probe records the rendered hash across contexts and checks for privacy engine presence.
+3. **Power State & DVFS Logging:** Accesses battery state and level via `navigator.getBattery()` where supported (Chromium) and explicitly flags when unsupported (Safari, Firefox) to control for Dynamic Voltage and Frequency Scaling (DVFS).
+4. **Session Leakage Prevention:** Every trace records a unique session UUID, timestamp, browser build, power state, and device label to ensure cross-session, cross-day evaluation without data leakage.
 
 ---
 
@@ -120,8 +123,8 @@ We tested the WebGPU contention probe across major web browsers and privacy conf
 To prevent static metadata (such as `maxComputeInvocationsPerWorkgroup` = 256 or 1024) from dominating vector comparisons, we strictly separate categorical metadata from the physical feature vector:
 * **Categorical Gate:** Architecture token (ALU math sample + adapter info). Profiles from different GPU microarchitectures are rejected immediately.
 * **Continuous Feature Vector $\vec{V} \in \mathbb{R}^{68}$:**
-  $$\vec{V} = \left[ \bar{r}_0, \bar{r}_1, \dots, \bar{r}_{63}, R_{16}, R_{64}, R_{128}, R_{256} \right]$$
-  where $\bar{r}_w \in [0, 1]$ are the normalized in-shader mean arrival ranks across 64 workgroups, and $R_k$ are the normalized contention scaling ratios.
+  $$\vec{V} = \left[ \bar{r}_0, \bar{r}_1, \dots, \bar{r}_{63}, \Delta L_{64}, \Delta L_{128}, \Delta L_{256}, m \right]$$
+  where $\bar{r}_w \in [0, 1]$ are the normalized in-shader mean arrival ranks across 64 workgroups, $\Delta L_k$ are the incremental contention differences, and $m$ is the OLS scaling slope.
 
 ### 4.2 Distance Metrics & Evaluation
 We evaluate linkage across browsers (e.g. Chrome vs. Safari on the same machine) using:
