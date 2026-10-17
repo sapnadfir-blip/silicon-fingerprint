@@ -3,14 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Silicon Fingerprint — WebGPU Physical Hardware Profiler</title>
+    <title>WebGPU Contention Profiler — Linking Identical Machines Across Browsers</title>
     <style>
         :root {
             --bg: #0b0f19;
             --card-bg: #111827;
             --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
             --accent-red: #ef4444;
             --accent-green: #10b981;
+            --accent-amber: #f59e0b;
             --border: #1f2937;
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
@@ -25,12 +27,12 @@
             justify-content: center;
         }
         .container {
-            max-width: 900px;
+            max-width: 980px;
             width: 100%;
         }
         header {
             text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
         }
         .badge {
             background: rgba(6, 182, 212, 0.15);
@@ -46,14 +48,15 @@
             margin-bottom: 12px;
         }
         h1 {
-            font-size: 28px;
+            font-size: 26px;
             margin: 0 0 8px 0;
             color: #ffffff;
+            line-height: 1.3;
         }
         p.subtitle {
             color: var(--text-muted);
             margin: 0;
-            font-size: 15px;
+            font-size: 14px;
         }
         .card {
             background-color: var(--card-bg);
@@ -89,10 +92,6 @@
             cursor: not-allowed;
             transform: none;
         }
-        .fingerprint-display {
-            display: none;
-            margin-top: 24px;
-        }
         .silicon-id-box {
             background: #030712;
             border: 1px solid var(--accent-cyan);
@@ -102,7 +101,7 @@
             margin-bottom: 20px;
         }
         .silicon-id-label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--accent-cyan);
             text-transform: uppercase;
             font-weight: 700;
@@ -111,14 +110,14 @@
         }
         .silicon-id-value {
             font-family: monospace;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: 700;
             color: #ffffff;
             word-break: break-all;
         }
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
             gap: 16px;
             margin-bottom: 20px;
         }
@@ -134,22 +133,20 @@
             margin-bottom: 4px;
         }
         .stat-value {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
             color: #ffffff;
             font-family: monospace;
         }
         .notice-box {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.3);
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
             border-radius: 8px;
             padding: 16px;
             font-size: 13px;
             line-height: 1.5;
-            color: #6ee7b7;
-        }
-        .notice-box strong {
-            color: #10b981;
+            color: #93c5fd;
+            margin-bottom: 20px;
         }
         table {
             width: 100%;
@@ -159,12 +156,13 @@
         }
         th, td {
             text-align: left;
-            padding: 8px 12px;
+            padding: 8px 10px;
             border-bottom: 1px solid var(--border);
         }
         th {
             color: var(--text-muted);
             font-weight: 600;
+            background: rgba(255, 255, 255, 0.02);
         }
         .log-terminal {
             background: #030712;
@@ -178,135 +176,349 @@
             margin-top: 16px;
             white-space: pre-wrap;
         }
+        .tag-pass {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .tag-blocked {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .tag-warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .matrix-table th {
+            font-size: 12px;
+        }
+        .comparison-input {
+            width: 100%;
+            background: #030712;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: #f3f4f6;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <div class="badge">Black Hat Asia 2027 Research Demonstration</div>
-            <h1>The Silicon Fingerprint</h1>
-            <p class="subtitle">Hardware Microarchitectural De-Anonymization via WebGPU Compute Shaders</p>
+            <div class="badge">Black Hat Asia Briefings Research Artifact</div>
+            <h1>Linking Identical Machines Across Browsers with WebGPU Contention</h1>
+            <p class="subtitle">Microarchitectural Workgroup Contention Profiling & Empirical Defense-Bypass Analysis</p>
         </header>
 
+        <!-- Profiling Trigger Card -->
         <div class="card">
-            <h3 style="margin-top: 0;">Physical Silicon Profiling Trigger</h3>
-            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">
-                Dispatches a non-linear WGSL floating-point matrix kernel across GPU execution workgroups to measure physical microarchitectural execution latency variations unique to your GPU die.
+            <h3 style="margin-top: 0; font-size: 17px;">1. Hardware Contention Probe Trigger</h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+                Executes unprivileged WGSL compute passes measuring: (1) IEEE-754 ALU microarchitectural semantics, and (2) inter-workgroup atomic memory arbiter contention across 16 to 512 workgroups to generate an empirical timing distribution vector.
             </p>
             <button id="runBtn" class="button" onclick="startProfiling()">
-                <span>⚡ Extract Hardware Silicon Fingerprint</span>
+                <span>⚡ Run Contention Benchmark & Defense Audit</span>
             </button>
 
             <div id="logTerm" class="log-terminal" style="display: none;"></div>
 
-            <div id="resultBox" class="fingerprint-display">
+            <div id="resultBox" style="display: none; margin-top: 24px;">
                 <div class="silicon-id-box">
-                    <div class="silicon-id-label">Canonical Physical Silicon Identifier (SHA-256)</div>
+                    <div class="silicon-id-label">Synthesized Device Hardware Token (SHA-256)</div>
                     <div id="siliconId" class="silicon-id-value">PROFILING...</div>
                 </div>
 
                 <div class="grid">
                     <div class="stat-box">
-                        <div class="stat-label">ALU Physical Math Signature</div>
+                        <div class="stat-label">ALU Microarchitecture Sig</div>
                         <div id="aluSig" class="stat-value" style="color: #38bdf8;">-</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">IEEE-754 ALU Family Check</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">Steady-State Latency</div>
-                        <div id="gpuLatency" class="stat-value">-</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">Thermal Quantization Tier</div>
-                        <div id="thermalTier" class="stat-value">-</div>
+                        <div class="stat-label">Contention Slope (dLatency/dWG)</div>
+                        <div id="contentionSlope" class="stat-value" style="color: #34d399;">-</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Throughput Saturation Metric</div>
                     </div>
                     <div class="stat-box">
                         <div class="stat-label">Max Invocations / Group</div>
                         <div id="gpuThreads" class="stat-value">-</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Reported Hardware Limit</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Timer Amplification Factor</div>
+                        <div id="timerAmp" class="stat-value">512x Loop (5-20ms)</div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Bypasses 100µs Timer Coarsening</div>
                     </div>
                 </div>
 
                 <div class="notice-box">
-                    <strong>✓ Physical Hardware Invariance Confirmed:</strong> The physical ALU signature is derived directly from the execution units of your GPU die. It remains 100% stable across <strong>Incognito Windows, Private Browsing, Tor, VPNs</strong>, and multiple browser engines on this device.
+                    <strong>Signal Grounding Note:</strong> The ALU Signature verifies GPU architecture family compliance, while the Workgroup Contention Latency Curve profiles physical memory arbiter serialization and clock throughput.
                 </div>
 
-                <h4 style="margin: 20px 0 8px 0;">Workgroup Iteration Execution Profile</h4>
+                <h4 style="margin: 20px 0 8px 0; font-size: 15px;">Workgroup Scale Contention Distribution (Multi-Scale Latency Profile)</h4>
                 <table>
                     <thead>
                         <tr>
-                            <th>Iteration</th>
-                            <th>Execution Latency</th>
-                            <th>ALU Arithmetic Sample</th>
-                            <th>Status</th>
+                            <th>Workgroups</th>
+                            <th>Total Threads</th>
+                            <th>Mean Latency</th>
+                            <th>Median Latency</th>
+                            <th>IQR (Spread)</th>
+                            <th>Jitter (StdDev)</th>
+                            <th>P10 – P90</th>
                         </tr>
                     </thead>
-                    <tbody id="timingsBody"></tbody>
+                    <tbody id="contentionTableBody"></tbody>
                 </table>
+
+                <div style="margin-top: 20px;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">Normalized Profile Feature Vector (for Cross-Browser Linkage):</div>
+                    <input type="text" id="featureVectorOutput" class="comparison-input" readonly />
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button class="button" style="background: #1e3a8a; font-size: 13px; padding: 10px 18px;" onclick="submitTraceToCollector()">
+                            <span>📤 Upload Trace to Lab Database</span>
+                        </button>
+                        <button class="button" style="background: #374151; font-size: 13px; padding: 10px 18px;" onclick="copyFeatureVector()">
+                            <span>📋 Copy Feature Vector</span>
+                        </button>
+                    </div>
+                    <div id="uploadStatus" style="font-size: 12px; margin-top: 6px; display: none;"></div>
+                </div>
             </div>
         </div>
 
+        <!-- Defense-Bypass Matrix Card -->
+        <div class="card">
+            <h3 style="margin-top: 0; font-size: 17px;">2. Empirical Defense-Bypass Matrix</h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
+                State-of-the-art browser privacy defenses evaluate canvas readbacks and audio contexts. WebGPU compute passes operate below the DOM rendering layer without canvas involvement.
+            </p>
+            <table class="matrix-table">
+                <thead>
+                    <tr>
+                        <th>Target Browser / Environment</th>
+                        <th>Anti-Tracking Defense</th>
+                        <th>WebGPU Status</th>
+                        <th>Attack Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Google Chrome</strong> (v113+)</td>
+                        <td>Standard Protection</td>
+                        <td><span class="tag-pass">Exposed</span></td>
+                        <td>Full contention profiling active</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Chrome Incognito</strong></td>
+                        <td>Ephemeral Storage / Isolated State</td>
+                        <td><span class="tag-pass">Exposed</span></td>
+                        <td><strong style="color: #ef4444;">Bypassed:</strong> Zero permission gating</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Apple Safari</strong> (17+ / Sequoia)</td>
+                        <td>Advanced Tracking & Fingerprinting Protection</td>
+                        <td><span class="tag-pass">Exposed</span></td>
+                        <td><strong style="color: #ef4444;">Bypassed:</strong> ATFP does not restrict compute passes</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Brave Browser</strong></td>
+                        <td>Shields (Canvas Farbling / Noise Injection)</td>
+                        <td><span class="tag-pass">Exposed</span></td>
+                        <td><strong style="color: #ef4444;">Bypassed:</strong> WebGPU bypasses canvas farbling</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firefox (Nightly / WebGPU Enabled)</strong></td>
+                        <td>Default / Enhanced Tracking Protection</td>
+                        <td><span class="tag-pass">Exposed</span></td>
+                        <td>Full contention profiling active</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firefox (with ResistFingerprinting)</strong></td>
+                        <td><code>privacy.resistFingerprinting = true</code></td>
+                        <td><span class="tag-blocked">Blocked</span></td>
+                        <td><strong style="color: #10b981;">Defended:</strong> <code>navigator.gpu</code> disabled</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Tor Browser / Mullvad Browser</strong></td>
+                        <td>Strict Sandboxing & Defense in Depth</td>
+                        <td><span class="tag-blocked">Blocked</span></td>
+                        <td><strong style="color: #10b981;">Defended:</strong> WebGPU completely disabled</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Cross-Browser Linkage Tool -->
+        <div class="card">
+            <h3 style="margin-top: 0; font-size: 17px;">3. Cross-Browser Linking Evaluator</h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+                Paste a feature vector generated from another browser on this machine (e.g. from Safari, Edge, or Chrome Incognito) to quantify cross-browser linkage using Cosine Similarity.
+            </p>
+            <input type="text" id="targetVectorInput" class="comparison-input" placeholder="Paste Feature Vector from Browser B (e.g. 0.012|0.820|1.450|...)" />
+            <button class="button" style="background: #374151; font-size: 13px; padding: 10px 18px;" onclick="evaluateLinkage()">
+                <span>🔍 Compare Vectors & Calculate Linkage Metric</span>
+            </button>
+            <div id="linkageVerdict" style="margin-top: 12px; font-size: 14px; font-weight: 600; display: none;"></div>
+        </div>
+
         <div style="text-align: center; font-size: 12px; color: var(--text-muted);">
-            C-ISFCR Lab, Department of Computer Science & Engineering, PES University, Bengaluru<br>
+            Centre for Information Security, Forensics & Cyber Resilience (C-ISFCR), PES University, Bengaluru<br>
             Dr. Sapna V M • Prajwal Chowdary • Prof. Prasad B. Honnavalli
         </div>
     </div>
 
     <script src="fingerprint.js"></script>
     <script>
+        let currentProfile = null;
+
         async function startProfiling() {
             const btn = document.getElementById('runBtn');
             const log = document.getElementById('logTerm');
             const resultBox = document.getElementById('resultBox');
             
             btn.disabled = true;
-            btn.innerHTML = '<span>⏳ Profiling Physical Execution Units...</span>';
+            btn.innerHTML = '<span>⏳ Dispatching Workgroup Contention Pipeline...</span>';
             log.style.display = 'block';
-            log.textContent = '[*] Initializing WebGPU hardware context...\n';
+            log.textContent = '[*] Initializing WebGPU hardware contention profiler...\n';
 
             try {
-                const profiler = new SiliconFingerprint();
-                const isSupported = await profiler.isSupported();
-                if (!isSupported) {
-                    log.textContent += '[-] Error: WebGPU not supported on this browser/platform.\n';
+                const profiler = new SiliconContentionProfiler();
+                const audit = await profiler.auditDefenses();
+                log.textContent += `[+] Host Environment: ${audit.browserFamily}\n`;
+                audit.defenseDetails.forEach(d => log.textContent += `[*] ${d}\n`);
+
+                if (!audit.webGpuExposed) {
+                    log.textContent += '[-] WebGPU is disabled or blocked in this browser environment.\n';
                     btn.disabled = false;
-                    btn.innerHTML = '<span>⚡ Extract Hardware Silicon Fingerprint</span>';
+                    btn.innerHTML = '<span>⚡ Retry Audit</span>';
                     return;
                 }
 
-                log.textContent += '[+] WebGPU API detected. Requesting High-Performance Adapter...\n';
-                log.textContent += '[+] Compiling WGSL transcendental ALU stress kernel...\n';
-                log.textContent += '[*] Dispatching parallel compute workgroups (256 groups x 64 threads)...\n';
+                log.textContent += '[*] Executing Tier 1: Microarchitecture ALU Validation...\n';
+                log.textContent += '[*] Executing Tier 2: Multi-Scale Contention Sweep (16 -> 512 Workgroups)...\n';
 
-                const fp = await profiler.generateFingerprint();
+                const profile = await profiler.generateFullProfile();
+                currentProfile = profile;
 
-                log.textContent += '[+] Microbenchmarks complete. Synthesizing hardware feature vector...\n';
-                log.textContent += `[✓] Deterministic ALU signature: ${fp.aluSignature}\n`;
-                log.textContent += `[✓] Canonical Silicon ID derived: ${fp.shortId}...\n`;
+                log.textContent += `[✓] ALU Microarchitecture Signature: ${profile.aluArchitectureSignature}\n`;
+                log.textContent += `[✓] Contention Slope: ${profile.contentionSlope} ms/WG\n`;
+                log.textContent += `[✓] Feature Vector Synthesized (${profile.featureVector.length} features)\n`;
+                log.textContent += `[✓] Synthesized Device Token: ${profile.shortId}...\n`;
 
-                document.getElementById('siliconId').textContent = fp.canonicalId;
-                document.getElementById('aluSig').textContent = fp.aluSignature;
-                document.getElementById('gpuLatency').textContent = fp.medianLatencyMs + ' ms';
-                document.getElementById('thermalTier').textContent = fp.thermalClass;
-                document.getElementById('gpuThreads').textContent = fp.adapterInfo.maxComputeInvocationsPerWorkgroup;
+                document.getElementById('siliconId').textContent = profile.canonicalId;
+                document.getElementById('aluSig').textContent = profile.aluArchitectureSignature;
+                document.getElementById('contentionSlope').textContent = profile.contentionSlope + " ms/WG";
+                document.getElementById('gpuThreads').textContent = profile.adapterInfo.maxComputeInvocationsPerWorkgroup;
+                document.getElementById('featureVectorOutput').value = profile.normalizedVectorString;
 
-                const tbody = document.getElementById('timingsBody');
+                const tbody = document.getElementById('contentionTableBody');
                 tbody.innerHTML = '';
-                fp.benchmarks.forEach((b, idx) => {
+                profile.contentionDistribution.forEach(scale => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>#${b.iteration + 1} ${idx === 0 ? '<span style="color: #9ca3af; font-size: 11px;">(warm-up)</span>' : ''}</td>
-                        <td style="font-family: monospace;">${b.latencyMs.toFixed(2)} ms</td>
-                        <td style="font-family: monospace; color: #38bdf8;">${b.sampleSum}</td>
-                        <td style="color: #34d399;">✓ Stable</td>
+                        <td style="font-weight: 600;">${scale.workgroups}</td>
+                        <td style="font-family: monospace;">${scale.threadCount.toLocaleString()}</td>
+                        <td style="font-family: monospace;">${scale.meanMs.toFixed(2)} ms</td>
+                        <td style="font-family: monospace; color: #38bdf8; font-weight: 600;">${scale.medianMs.toFixed(2)} ms</td>
+                        <td style="font-family: monospace;">${scale.iqrMs.toFixed(2)} ms</td>
+                        <td style="font-family: monospace;">±${scale.stdDevMs.toFixed(2)} ms</td>
+                        <td style="font-family: monospace; color: #9ca3af;">${scale.p10Ms.toFixed(2)} – ${scale.p90Ms.toFixed(2)} ms</td>
                     `;
                     tbody.appendChild(tr);
                 });
 
                 resultBox.style.display = 'block';
-                btn.innerHTML = '<span>✓ Silicon Fingerprint Extracted</span>';
-            } catch (err) {
-                log.textContent += '[-] Error during profiling: ' + err.message + '\n';
                 btn.disabled = false;
-                btn.innerHTML = '<span>⚡ Retry Extraction</span>';
+                btn.innerHTML = '<span>✓ Contention Profile Captured (Re-run)</span>';
+            } catch (err) {
+                log.textContent += '[-] Exception during execution: ' + err.message + '\n';
+                btn.disabled = false;
+                btn.innerHTML = '<span>⚡ Retry Contention Profiling</span>';
             }
+        }
+
+        function evaluateLinkage() {
+            const verdictBox = document.getElementById('linkageVerdict');
+            const targetStr = document.getElementById('targetVectorInput').value.trim();
+
+            if (!currentProfile) {
+                alert("Please run the contention benchmark first to generate a baseline profile.");
+                return;
+            }
+            if (!targetStr) {
+                alert("Please paste a feature vector to compare.");
+                return;
+            }
+
+            const targetVector = targetStr.split('|').map(v => parseFloat(v));
+            const mockTargetProfile = {
+                aluArchitectureSignature: currentProfile.aluArchitectureSignature,
+                featureVector: targetVector
+            };
+
+            const result = SiliconContentionProfiler.compareSignatures(currentProfile, mockTargetProfile);
+            verdictBox.style.display = 'block';
+
+            if (result.verdict === 'SAME_DEVICE_CORRELATED') {
+                verdictBox.style.color = '#34d399';
+                verdictBox.innerHTML = `✓ Linkage Correlation: <strong>${result.linkageConfidence}</strong> (Cosine Similarity: ${result.cosineSimilarity}). Highly correlated with same-device silicon signature.`;
+            } else {
+                verdictBox.style.color = '#f87171';
+                verdictBox.innerHTML = `✗ Linkage Divergence: <strong>${result.linkageConfidence}</strong> (Cosine Similarity: ${result.cosineSimilarity}). Profiling vectors exhibit independent hardware characteristics.`;
+            }
+        }
+
+        async function submitTraceToCollector() {
+            if (!currentProfile) {
+                alert("Please run the contention benchmark first.");
+                return;
+            }
+            const statusDiv = document.getElementById('uploadStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.color = '#93c5fd';
+            statusDiv.textContent = 'Uploading trace to collector...';
+            try {
+                const res = await fetch('/api/submit_trace', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentProfile)
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    statusDiv.style.color = '#34d399';
+                    statusDiv.textContent = `✓ Trace saved to lab repository (${data.saved}). Total traces: ${data.total_traces}`;
+                } else {
+                    statusDiv.style.color = '#f87171';
+                    statusDiv.textContent = 'Upload failed: ' + (data.error || 'Server rejected');
+                }
+            } catch (e) {
+                statusDiv.style.color = '#fbbf24';
+                statusDiv.textContent = 'Note: Trace collector server not detected (run via python3 scripts/collect_pilot.py).';
+            }
+        }
+
+        function copyFeatureVector() {
+            const input = document.getElementById('featureVectorOutput');
+            if (!input.value) return;
+            input.select();
+            navigator.clipboard.writeText(input.value);
+            alert("Feature vector copied to clipboard!");
         }
     </script>
 </body>
