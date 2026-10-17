@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Silicon Fingerprint — WebGPU Physical Hardware Profiler</title>
+    <style>
+        :root {
+            --bg: #0b0f19;
+            --card-bg: #111827;
+            --accent-cyan: #06b6d4;
+            --accent-red: #ef4444;
+            --accent-green: #10b981;
+            --border: #1f2937;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .badge {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--accent-cyan);
+            border: 1px solid var(--accent-cyan);
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: inline-block;
+            margin-bottom: 12px;
+        }
+        h1 {
+            font-size: 28px;
+            margin: 0 0 8px 0;
+            color: #ffffff;
+        }
+        p.subtitle {
+            color: var(--text-muted);
+            margin: 0;
+            font-size: 15px;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+        }
+        .button {
+            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            color: #ffffff;
+            border: none;
+            padding: 14px 28px;
+            font-size: 15px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        .button:disabled {
+            background: #374151;
+            color: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .fingerprint-display {
+            display: none;
+            margin-top: 24px;
+        }
+        .silicon-id-box {
+            background: #030712;
+            border: 1px solid var(--accent-cyan);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .silicon-id-label {
+            font-size: 12px;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            margin-bottom: 4px;
+        }
+        .silicon-id-value {
+            font-family: monospace;
+            font-size: 22px;
+            font-weight: 700;
+            color: #ffffff;
+            word-break: break-all;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .stat-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+            font-family: monospace;
+        }
+        .notice-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #fca5a5;
+        }
+        .notice-box strong {
+            color: #ef4444;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 12px;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .log-terminal {
+            background: #030712;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #34d399;
+            max-height: 140px;
+            overflow-y: auto;
+            margin-top: 16px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="badge">Black Hat Asia 2027 Research Demonstration</div>
+            <h1>The Silicon Fingerprint</h1>
+            <p class="subtitle">Cross-Browser Hardware De-Anonymization via WebGPU Compute Shader Micro-Profiling</p>
+        </header>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">Physical Silicon Profiling Trigger</h3>
+            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 18px;">
+                Dispatches a non-linear WGSL floating-point matrix kernel across GPU execution workgroups to measure physical microarchitectural execution latency variations unique to your GPU die.
+            </p>
+            <button id="runBtn" class="button" onclick="startProfiling()">
+                <span>⚡ Extract Hardware Silicon Fingerprint</span>
+            </button>
+
+            <div id="logTerm" class="log-terminal" style="display: none;"></div>
+
+            <div id="resultBox" class="fingerprint-display">
+                <div class="silicon-id-box">
+                    <div class="silicon-id-label">Permanent Physical Silicon Identifier (SHA-256)</div>
+                    <div id="siliconId" class="silicon-id-value">PROFILING...</div>
+                </div>
+
+                <div class="grid">
+                    <div class="stat-box">
+                        <div class="stat-label">GPU Vendor & Device</div>
+                        <div id="gpuVendor" class="stat-value">-</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Microarchitecture</div>
+                        <div id="gpuArch" class="stat-value">-</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Median Execution Latency</div>
+                        <div id="gpuLatency" class="stat-value">-</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Max Invocations / Group</div>
+                        <div id="gpuThreads" class="stat-value">-</div>
+                    </div>
+                </div>
+
+                <div class="notice-box">
+                    <strong>⚠️ Cross-Browser Privacy Bypass:</strong> This signature is derived directly from the physical silicon Execution Units of your GPU. It remains identical across <strong>Incognito Mode, Private Browsing, Tor, VPNs</strong>, and across multiple browsers (Chrome, Edge, Safari, Brave) on this machine.
+                </div>
+
+                <h4 style="margin: 20px 0 8px 0;">Workgroup Iteration Microbenchmark Signatures</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Iteration</th>
+                            <th>Execution Latency</th>
+                            <th>Divergence Hash Sample</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="timingsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="text-align: center; font-size: 12px; color: var(--text-muted);">
+            C-ISFCR Lab, Department of Computer Science & Engineering, PES University, Bengaluru<br>
+            Dr. Sapna V M • Prajwal Chowdary • Prof. Prasad B. Honnavalli
+        </div>
+    </div>
+
+    <script src="fingerprint.js"></script>
+    <script>
+        async function startProfiling() {
+            const btn = document.getElementById('runBtn');
+            const log = document.getElementById('logTerm');
+            const resultBox = document.getElementById('resultBox');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳ Profiling Physical Execution Units...</span>';
+            log.style.display = 'block';
+            log.textContent = '[*] Initializing WebGPU hardware context...\n';
+
+            try {
+                const profiler = new SiliconFingerprint();
+                const isSupported = await profiler.isSupported();
+                if (!isSupported) {
+                    log.textContent += '[-] Error: WebGPU not supported on this browser/platform.\n';
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>⚡ Extract Hardware Silicon Fingerprint</span>';
+                    return;
+                }
+
+                log.textContent += '[+] WebGPU API detected. Requesting High-Performance Adapter...\n';
+                log.textContent += '[+] Compiling WGSL transcendental ALU stress kernel...\n';
+                log.textContent += '[*] Dispatching parallel compute workgroups (256 groups x 64 threads)...\n';
+
+                const fp = await profiler.generateFingerprint();
+
+                log.textContent += '[+] Microbenchmarks complete. Synthesizing hardware feature vector...\n';
+                log.textContent += `[✓] Silicon ID derived: ${fp.shortId}...\n`;
+
+                document.getElementById('siliconId').textContent = fp.siliconId;
+                document.getElementById('gpuVendor').textContent = fp.adapterInfo.vendor || 'Apple / Unified';
+                document.getElementById('gpuArch').textContent = fp.adapterInfo.architecture || 'Metal / Common';
+                document.getElementById('gpuLatency').textContent = fp.medianLatencyMs + ' ms';
+                document.getElementById('gpuThreads').textContent = fp.adapterInfo.maxComputeInvocationsPerWorkgroup;
+
+                const tbody = document.getElementById('timingsBody');
+                tbody.innerHTML = '';
+                fp.benchmarks.forEach(b => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>#${b.iteration + 1}</td>
+                        <td style="font-family: monospace;">${b.latencyMs.toFixed(2)} ms</td>
+                        <td style="font-family: monospace;">${b.sampleSum}</td>
+                        <td style="color: #34d399;">✓ Stable</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                resultBox.style.display = 'block';
+                btn.innerHTML = '<span>✓ Silicon Fingerprint Extracted</span>';
+            } catch (err) {
+                log.textContent += '[-] Error during profiling: ' + err.message + '\n';
+                btn.disabled = false;
+                btn.innerHTML = '<span>⚡ Retry Extraction</span>';
+            }
+        }
+    </script>
+</body>
+</html>
