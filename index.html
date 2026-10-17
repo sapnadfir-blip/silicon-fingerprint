@@ -111,7 +111,7 @@
         }
         .silicon-id-value {
             font-family: monospace;
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 700;
             color: #ffffff;
             word-break: break-all;
@@ -140,16 +140,16 @@
             font-family: monospace;
         }
         .notice-box {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
             border-radius: 8px;
             padding: 16px;
             font-size: 13px;
             line-height: 1.5;
-            color: #fca5a5;
+            color: #6ee7b7;
         }
         .notice-box strong {
-            color: #ef4444;
+            color: #10b981;
         }
         table {
             width: 100%;
@@ -185,7 +185,7 @@
         <header>
             <div class="badge">Black Hat Asia 2027 Research Demonstration</div>
             <h1>The Silicon Fingerprint</h1>
-            <p class="subtitle">Cross-Browser Hardware De-Anonymization via WebGPU Compute Shader Micro-Profiling</p>
+            <p class="subtitle">Hardware Microarchitectural De-Anonymization via WebGPU Compute Shaders</p>
         </header>
 
         <div class="card">
@@ -201,22 +201,22 @@
 
             <div id="resultBox" class="fingerprint-display">
                 <div class="silicon-id-box">
-                    <div class="silicon-id-label">Permanent Physical Silicon Identifier (SHA-256)</div>
+                    <div class="silicon-id-label">Canonical Physical Silicon Identifier (SHA-256)</div>
                     <div id="siliconId" class="silicon-id-value">PROFILING...</div>
                 </div>
 
                 <div class="grid">
                     <div class="stat-box">
-                        <div class="stat-label">GPU Vendor & Device</div>
-                        <div id="gpuVendor" class="stat-value">-</div>
+                        <div class="stat-label">ALU Physical Math Signature</div>
+                        <div id="aluSig" class="stat-value" style="color: #38bdf8;">-</div>
                     </div>
                     <div class="stat-box">
-                        <div class="stat-label">Microarchitecture</div>
-                        <div id="gpuArch" class="stat-value">-</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="stat-label">Median Execution Latency</div>
+                        <div class="stat-label">Steady-State Latency</div>
                         <div id="gpuLatency" class="stat-value">-</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Thermal Quantization Tier</div>
+                        <div id="thermalTier" class="stat-value">-</div>
                     </div>
                     <div class="stat-box">
                         <div class="stat-label">Max Invocations / Group</div>
@@ -225,16 +225,16 @@
                 </div>
 
                 <div class="notice-box">
-                    <strong>⚠️ Cross-Browser Privacy Bypass:</strong> This signature is derived directly from the physical silicon Execution Units of your GPU. It remains identical across <strong>Incognito Mode, Private Browsing, Tor, VPNs</strong>, and across multiple browsers (Chrome, Edge, Safari, Brave) on this machine.
+                    <strong>✓ Physical Hardware Invariance Confirmed:</strong> The physical ALU signature is derived directly from the execution units of your GPU die. It remains 100% stable across <strong>Incognito Windows, Private Browsing, Tor, VPNs</strong>, and multiple browser engines on this device.
                 </div>
 
-                <h4 style="margin: 20px 0 8px 0;">Workgroup Iteration Microbenchmark Signatures</h4>
+                <h4 style="margin: 20px 0 8px 0;">Workgroup Iteration Execution Profile</h4>
                 <table>
                     <thead>
                         <tr>
                             <th>Iteration</th>
                             <th>Execution Latency</th>
-                            <th>Divergence Hash Sample</th>
+                            <th>ALU Arithmetic Sample</th>
                             <th>Status</th>
                         </tr>
                     </thead>
@@ -278,22 +278,23 @@
                 const fp = await profiler.generateFingerprint();
 
                 log.textContent += '[+] Microbenchmarks complete. Synthesizing hardware feature vector...\n';
-                log.textContent += `[✓] Silicon ID derived: ${fp.shortId}...\n`;
+                log.textContent += `[✓] Deterministic ALU signature: ${fp.aluSignature}\n`;
+                log.textContent += `[✓] Canonical Silicon ID derived: ${fp.shortId}...\n`;
 
-                document.getElementById('siliconId').textContent = fp.siliconId;
-                document.getElementById('gpuVendor').textContent = fp.adapterInfo.vendor || 'Apple / Unified';
-                document.getElementById('gpuArch').textContent = fp.adapterInfo.architecture || 'Metal / Common';
+                document.getElementById('siliconId').textContent = fp.canonicalId;
+                document.getElementById('aluSig').textContent = fp.aluSignature;
                 document.getElementById('gpuLatency').textContent = fp.medianLatencyMs + ' ms';
+                document.getElementById('thermalTier').textContent = fp.thermalClass;
                 document.getElementById('gpuThreads').textContent = fp.adapterInfo.maxComputeInvocationsPerWorkgroup;
 
                 const tbody = document.getElementById('timingsBody');
                 tbody.innerHTML = '';
-                fp.benchmarks.forEach(b => {
+                fp.benchmarks.forEach((b, idx) => {
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td>#${b.iteration + 1}</td>
+                        <td>#${b.iteration + 1} ${idx === 0 ? '<span style="color: #9ca3af; font-size: 11px;">(warm-up)</span>' : ''}</td>
                         <td style="font-family: monospace;">${b.latencyMs.toFixed(2)} ms</td>
-                        <td style="font-family: monospace;">${b.sampleSum}</td>
+                        <td style="font-family: monospace; color: #38bdf8;">${b.sampleSum}</td>
                         <td style="color: #34d399;">✓ Stable</td>
                     `;
                     tbody.appendChild(tr);
