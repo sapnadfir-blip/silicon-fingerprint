@@ -18,14 +18,15 @@
 
 ## 📌 Overview
 
-**WebGPU Contention Profiling** is an empirical research framework investigating whether unprivileged web pages can link physical devices across isolated browser sessions using microarchitectural GPU memory contention.
+**WebGPU Contention Profiling** is an empirical research framework investigating whether unprivileged web pages can link physical devices across isolated browser sessions using in-shader workgroup scheduling and microarchitectural GPU memory contention.
 
 While state-of-the-art privacy mechanisms (Incognito mode, Private Browsing, canvas farbling, VPNs, and cookie partitioning) sanitize software attributes and randomize canvas pixel readbacks, they leave low-level GPGPU compute pipelines (`GPUComputePipeline`) completely unrestricted. Because compute shaders execute numerical algorithms directly on physical Execution Units (EUs) without rendering to an HTML canvas, canvas noise-injection defenses are rendered completely blind.
 
-Our pure JavaScript and WGSL framework measures the statistical distribution of execution times under inter-workgroup atomic memory contention across varying workgroup scales (16 to 512 workgroups), extracting a multi-dimensional timing feature vector that enables:
-1. **Bypassing Private Browsing & Canvas Farbling:** Evaluating why Chrome Incognito, Safari ATFP, and Brave farbling fail to restrict compute passes.
-2. **Cross-Browser Linking on Apple Silicon:** Measuring feature vector correlation (Cosine Similarity > 0.94) across Chrome and Safari on Apple Silicon Unified Memory Architectures (UMA).
-3. **Evaluating Browser Countermeasures:** Demonstrating that 100µs timer coarsening is bypassed via iterative amplification loops, and proposing compute permission gating (`webgpu-compute`) to restore browser isolation.
+Our pure JavaScript and WGSL framework measures:
+1. **In-Shader Scheduling Arrival Order:** Reading back the exact atomic ticket sequence (`atomicAdd`) acquired by 64 concurrent workgroups, providing a browser-independent, in-shader hardware scheduling signal.
+2. **Multi-Scale Contention Curves:** Profiling 30 runs per workgroup scale (16, 64, 128, 256 workgroups) to compute normalized scaling ratios that bypass browser event loop overheads.
+3. **Continuous Physical Feature Vector:** A normalized 68-dimension feature vector evaluated via Cosine Distance ($1 - \text{sim}$) and Euclidean Distance, with zero static metadata.
+4. **Empirical Defense Auditing:** Actively testing canvas farbling via dual renders, measuring empirical timer resolution, and documenting why Chrome Incognito, Safari ATFP, and Brave default protections fail to restrict compute passes.
 
 ---
 

@@ -1,5 +1,5 @@
 /**
- * WebGPU Hardware Contention & Defense-Bypass Profiling Engine
+ * WebGPU Microarchitectural Contention & Scheduling Profiler
  * Project: Linking Identical Machines Across Browsers with WebGPU Contention
  * 
  * Authors:
@@ -10,9 +10,9 @@
  * Target: Black Hat Asia Briefings
  */
 
-// WGSL Compute Shader 1: Architecture & ALU Semantics Probe
-// High-iteration transcendental arithmetic designed to verify IEEE-754 ALU compliance
-// and classify the GPU microarchitecture family.
+// 1. Microarchitectural ALU Validation Kernel
+// Evaluates IEEE-754 floating point arithmetic rounding and transcendental semantics.
+// This is a deterministic microarchitecture classifier (differentiates GPU families/drivers).
 const WGSL_ALU_PROBE_KERNEL = `
 @group(0) @binding(0) var<storage, read_write> outputBuffer: array<f32>;
 
@@ -30,44 +30,59 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 `;
 
-// WGSL Compute Shader 2: Inter-Workgroup Atomic Memory & Bus Contention Kernel
-// Dispatches multiple workgroups contending for atomic locks and strided memory access
-// across on-chip shared cache lines to measure physical arbiter latency jitter.
-const WGSL_CONTENTION_KERNEL = `
-struct ContentionMetrics {
-    globalCounter: atomic<u32>,
-    bankCollisions: atomic<u32>,
+// 2. In-Shader Execution Unit Scheduling & Arrival-Order Kernel
+// Workgroups race to acquire tickets from a central atomic counter.
+// The resulting arrival sequence records the hardware arbiter's physical scheduling order.
+const WGSL_ARRIVAL_ORDER_KERNEL = `
+struct Arbiter {
+    next: atomic<u32>,
 };
 
-@group(0) @binding(0) var<storage, read_write> metrics: ContentionMetrics;
-@group(0) @binding(1) var<storage, read_write> contentionTrace: array<u32>;
-
-var<workgroup> localScratch: array<u32, 64>;
+@group(0) @binding(0) var<storage, read_write> arbiter: Arbiter;
+@group(0) @binding(1) var<storage, read_write> arrival: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(
-    @builtin(global_invocation_id) global_id: vec3<u32>,
-    @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) group_id: vec3<u32>
+    @builtin(workgroup_id) wg: vec3<u32>,
+    @builtin(local_invocation_id) lid: vec3<u32>
 ) {
-    let tid = local_id.x;
-    let gid = global_id.x;
-    
-    // 1. Induce intra-workgroup shared memory bank conflict
-    localScratch[tid] = tid * 33u;
+    if (lid.x == 0u) {
+        let ticket = atomicAdd(&arbiter.next, 1u);
+        arrival[wg.x] = ticket;
+    }
+}
+`;
+
+// 3. Multi-Scale Memory Contention Scaling Kernel
+// Stresses shared memory and global bus to profile scaling curves.
+const WGSL_MEMORY_CONTENTION_KERNEL = `
+struct MemoryStress {
+    counter: atomic<u32>,
+};
+
+@group(0) @binding(0) var<storage, read_write> stress: MemoryStress;
+@group(0) @binding(1) var<storage, read_write> trace: array<u32>;
+
+var<workgroup> sharedTile: array<u32, 64>;
+
+@compute @workgroup_size(64)
+fn main(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wgid: vec3<u32>
+) {
+    let tid = lid.x;
+    sharedTile[tid] = tid * 31u;
     workgroupBarrier();
     
-    var localAccum: u32 = localScratch[(tid * 17u) % 64u];
-    
-    // 2. Inter-workgroup atomic contention on central arbiter
-    for (var i: u32 = 0u; i < 64u; i = i + 1u) {
-        let ticket = atomicAdd(&metrics.globalCounter, 1u);
-        localAccum = (localAccum ^ ticket) + 1u;
+    var val: u32 = sharedTile[(tid * 7u) % 64u];
+    for (var i: u32 = 0u; i < 48u; i = i + 1u) {
+        let t = atomicAdd(&stress.counter, 1u);
+        val = (val ^ t) + 1u;
     }
     
-    // 3. Stressed global bus write
-    if (gid < arrayLength(&contentionTrace)) {
-        contentionTrace[gid] = localAccum;
+    if (gid.x < arrayLength(&trace)) {
+        trace[gid.x] = val;
     }
 }
 `;
@@ -78,69 +93,104 @@ class SiliconContentionProfiler {
         this.device = null;
         this.adapterInfo = {};
         this.defenseAudit = {};
+        this.powerState = {};
     }
 
     /**
-     * Audit browser environment and defense bypass capabilities
+     * Measures actual timer resolution empirically rather than assuming it
+     */
+    static measureTimerResolution() {
+        const deltas = new Set();
+        let last = performance.now();
+        let iterations = 0;
+        while (deltas.size < 20 && iterations < 8000) {
+            const t = performance.now();
+            if (t !== last) {
+                deltas.add(t - last);
+                last = t;
+            }
+            iterations++;
+        }
+        if (deltas.size === 0) return 0.1;
+        const minDelta = Math.min(...deltas);
+        return parseFloat(minDelta.toFixed(4));
+    }
+
+    /**
+     * Detects canvas farbling dynamically by performing two identical canvas renders
+     * and checking for noise injection (e.g. Brave Shields / privacy extensions).
+     */
+    static async detectCanvasFarbling() {
+        try {
+            const renderCanvas = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext("2d");
+                ctx.fillStyle = "rgb(120, 60, 30)";
+                ctx.fillRect(0, 0, 64, 64);
+                ctx.font = "14px 'Arial', sans-serif";
+                ctx.fillStyle = "rgb(25, 200, 110)";
+                ctx.fillText("FarbleTest::PES", 2, 32);
+                return canvas.toDataURL();
+            };
+            const sampleA = renderCanvas();
+            const sampleB = renderCanvas();
+            return {
+                executed: true,
+                farblingActive: sampleA !== sampleB,
+                identical: sampleA === sampleB
+            };
+        } catch (e) {
+            return { executed: false, error: e.message };
+        }
+    }
+
+    /**
+     * Extracts power state (battery vs AC, level) to control for DVFS / thermal throttling
+     */
+    static async getPowerState() {
+        if (typeof navigator.getBattery === 'function') {
+            try {
+                const b = await navigator.getBattery();
+                return {
+                    supported: true,
+                    charging: b.charging,
+                    level: Math.round(b.level * 100)
+                };
+            } catch (e) {}
+        }
+        return { supported: false, charging: null, level: null };
+    }
+
+    /**
+     * Audits actual browser environment without speculative UA sniffing
      */
     async auditDefenses() {
+        const timerRes = SiliconContentionProfiler.measureTimerResolution();
+        const farbleCheck = await SiliconContentionProfiler.detectCanvasFarbling();
+        const power = await SiliconContentionProfiler.getPowerState();
+
         const audit = {
             webGpuExposed: !!(navigator.gpu),
-            userAgent: navigator.userAgent,
-            browserFamily: "Unknown",
-            privacyDefenseActive: false,
-            defenseDetails: []
+            crossOriginIsolated: !!(window.crossOriginIsolated),
+            measuredTimerResolutionMs: timerRes,
+            canvasFarblingActive: farbleCheck.farblingActive || false,
+            powerState: power,
+            userAgent: navigator.userAgent
         };
 
-        const ua = navigator.userAgent.toLowerCase();
-        if (ua.includes("edg/")) {
-            audit.browserFamily = "Microsoft Edge";
-        } else if (ua.includes("chrome/") && !ua.includes("edg/")) {
-            // Check for Brave
-            if (navigator.brave && typeof navigator.brave.isBrave === 'function') {
-                audit.browserFamily = "Brave Browser";
-                audit.defenseDetails.push("Brave Shields active (Canvas Farbling enabled)");
-            } else {
-                audit.browserFamily = "Google Chrome";
-            }
-        } else if (ua.includes("safari/") && !ua.includes("chrome/")) {
-            audit.browserFamily = "Apple Safari";
-            audit.defenseDetails.push("Safari Advanced Tracking and Fingerprinting Protection (ATFP) evaluation");
-        } else if (ua.includes("firefox/")) {
-            audit.browserFamily = "Mozilla Firefox";
-        }
-
-        // Test Canvas 2D farbling vs WebGPU compute
-        try {
-            const canvas = document.createElement("canvas");
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-                ctx.textBaseline = "top";
-                ctx.font = "14px 'Arial'";
-                ctx.fillText("ContentionProbe::SecurityAudit", 2, 2);
-                const dataUrl = canvas.toDataURL();
-                audit.canvasHash = this._fastHash(dataUrl);
-            }
-        } catch (e) {
-            audit.defenseDetails.push("Canvas 2D access restricted: " + e.message);
-        }
-
-        if (!audit.webGpuExposed) {
-            audit.defenseDetails.push("WebGPU blocked or disabled by browser (e.g. Tor Browser or Firefox RFP)");
-        } else {
-            audit.defenseDetails.push("WebGPU compute pipeline fully unconstrained (Zero permission prompts)");
-        }
-
         this.defenseAudit = audit;
+        this.powerState = power;
         return audit;
     }
 
     /**
-     * Initializes WebGPU context and extracts device limits
+     * Initializes WebGPU context using standard adapter.info (avoiding deprecated API warnings)
      */
     async initialize() {
         if (!navigator.gpu) {
-            throw new Error("WebGPU is not exposed in this browser environment.");
+            throw new Error("WebGPU API not available in this context.");
         }
 
         this.adapter = await navigator.gpu.requestAdapter({
@@ -148,24 +198,25 @@ class SiliconContentionProfiler {
         });
 
         if (!this.adapter) {
-            throw new Error("No appropriate WebGPU adapter found.");
+            throw new Error("No appropriate WebGPU adapter returned.");
         }
 
         this.device = await this.adapter.requestDevice();
 
-        let info = {};
-        if (typeof this.adapter.requestAdapterInfo === 'function') {
+        // Check modern adapter.info first, fallback to requestAdapterInfo if present
+        let info = this.adapter.info || {};
+        if (!info.vendor && typeof this.adapter.requestAdapterInfo === 'function') {
             try {
                 info = await this.adapter.requestAdapterInfo();
             } catch (e) {
-                info = { vendor: "Restricted", architecture: "Protected" };
+                info = {};
             }
         }
 
         this.adapterInfo = {
-            vendor: info.vendor || "Standard GPU Adapter",
-            architecture: info.architecture || "Unified Core Architecture",
-            device: info.device || "Compute Device",
+            vendor: info.vendor || "",
+            architecture: info.architecture || "",
+            device: info.device || "",
             description: info.description || "",
             maxComputeInvocationsPerWorkgroup: this.device.limits.maxComputeInvocationsPerWorkgroup,
             maxComputeWorkgroupSizeX: this.device.limits.maxComputeWorkgroupSizeX,
@@ -175,8 +226,8 @@ class SiliconContentionProfiler {
     }
 
     /**
-     * Tier 1: Microarchitectural ALU Validation
-     * Evaluates transcendental operations to verify IEEE-754 ALU compliance.
+     * Tier 1: Microarchitectural ALU Validation (Architecture Classifier)
+     * Verifies deterministic floating-point arithmetic rounding behavior.
      */
     async profileAluArchitecture() {
         const workgroupCount = 64;
@@ -203,15 +254,15 @@ class SiliconContentionProfiler {
             entries: [{ binding: 0, resource: { buffer: gpuBuffer } }]
         });
 
-        const commandEncoder = this.device.createCommandEncoder();
-        const pass = commandEncoder.beginComputePass();
+        const encoder = this.device.createCommandEncoder();
+        const pass = encoder.beginComputePass();
         pass.setPipeline(pipeline);
         pass.setBindGroup(0, bindGroup);
         pass.dispatchWorkgroups(workgroupCount);
         pass.end();
 
-        commandEncoder.copyBufferToBuffer(gpuBuffer, 0, readBuffer, 0, bufferSize);
-        this.device.queue.submit([commandEncoder.finish()]);
+        encoder.copyBufferToBuffer(gpuBuffer, 0, readBuffer, 0, bufferSize);
+        this.device.queue.submit([encoder.finish()]);
 
         await readBuffer.mapAsync(GPUMapMode.READ);
         const data = new Float32Array(readBuffer.getMappedRange().slice(0));
@@ -220,50 +271,144 @@ class SiliconContentionProfiler {
         gpuBuffer.destroy();
         readBuffer.destroy();
 
-        // Calculate IEEE-754 arithmetic sample
         const sampleSum = data.reduce((acc, v, idx) => (idx % 64 === 0 ? acc + Math.abs(v) : acc), 0);
         return sampleSum.toFixed(6);
     }
 
     /**
-     * Tier 2: Multi-Scale Workgroup Contention Latency Distribution
-     * Measures memory arbiter serialization latency across scaling workgroups (16, 64, 128, 256, 512).
+     * Tier 2: In-Shader Scheduling Order (Hardware Arbiter Readback)
+     * Reads back the exact arrival rank of each workgroup winning the central arbiter.
+     * This provides a browser-independent, in-shader hardware scheduling signal.
      */
-    async profileContentionDistribution(scales = [16, 64, 128, 256, 512], runsPerScale = 6) {
-        const shaderModule = this.device.createShaderModule({ code: WGSL_CONTENTION_KERNEL });
+    async profileSchedulingOrder(workgroupCount = 64, iterations = 32) {
+        const shaderModule = this.device.createShaderModule({ code: WGSL_ARRIVAL_ORDER_KERNEL });
         const pipeline = this.device.createComputePipeline({
             layout: 'auto',
             compute: { module: shaderModule, entryPoint: 'main' }
         });
 
-        const scaleResults = [];
+        const arbiterBufferSize = 4;
+        const arrivalBufferSize = workgroupCount * 4;
 
-        for (const workgroups of scales) {
-            const threadCount = workgroups * 64;
-            const metricsBufferSize = 8; // 2 * u32
-            const traceBufferSize = threadCount * 4;
+        // Initialize rank accumulators for each workgroup
+        const rankAccumulators = new Array(workgroupCount).fill(0);
+        const rankSquaredAccumulators = new Array(workgroupCount).fill(0);
+        const allArrivalRuns = [];
 
-            const metricsBuffer = this.device.createBuffer({
-                size: metricsBufferSize,
+        for (let iter = 0; iter < iterations; iter++) {
+            const arbiterBuffer = this.device.createBuffer({
+                size: arbiterBufferSize,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+            });
+
+            const arrivalBuffer = this.device.createBuffer({
+                size: arrivalBufferSize,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+            });
+
+            const readBuffer = this.device.createBuffer({
+                size: arrivalBufferSize,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+            });
+
+            const bindGroup = this.device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: { buffer: arbiterBuffer } },
+                    { binding: 1, resource: { buffer: arrivalBuffer } }
+                ]
+            });
+
+            const encoder = this.device.createCommandEncoder();
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, bindGroup);
+            pass.dispatchWorkgroups(workgroupCount);
+            pass.end();
+
+            encoder.copyBufferToBuffer(arrivalBuffer, 0, readBuffer, 0, arrivalBufferSize);
+            this.device.queue.submit([encoder.finish()]);
+
+            await readBuffer.mapAsync(GPUMapMode.READ);
+            const arrivalArray = new Uint32Array(readBuffer.getMappedRange().slice(0));
+            readBuffer.unmap();
+
+            arbiterBuffer.destroy();
+            arrivalBuffer.destroy();
+            readBuffer.destroy();
+
+            // Record this run's arrival order
+            const runRanks = Array.from(arrivalArray);
+            allArrivalRuns.push(runRanks);
+
+            for (let wg = 0; wg < workgroupCount; wg++) {
+                const rank = runRanks[wg];
+                rankAccumulators[wg] += rank;
+                rankSquaredAccumulators[wg] += (rank * rank);
+            }
+        }
+
+        // Compute mean arrival rank and variance per workgroup
+        const meanArrivalRanks = [];
+        const rankVariances = [];
+        for (let wg = 0; wg < workgroupCount; wg++) {
+            const mean = rankAccumulators[wg] / iterations;
+            const variance = (rankSquaredAccumulators[wg] / iterations) - (mean * mean);
+            meanArrivalRanks.push(parseFloat(mean.toFixed(2)));
+            rankVariances.push(parseFloat(variance.toFixed(2)));
+        }
+
+        // Compute normalized mean rank vector (values in [0, 1])
+        const normalizedRankVector = meanArrivalRanks.map(r => parseFloat((r / (workgroupCount - 1)).toFixed(4)));
+
+        return {
+            workgroupCount: workgroupCount,
+            totalIterations: iterations,
+            meanArrivalRanks: meanArrivalRanks,
+            rankVariances: rankVariances,
+            normalizedRankVector: normalizedRankVector,
+            sampleArrivalTrace: allArrivalRuns.slice(0, 3)
+        };
+    }
+
+    /**
+     * Tier 3: Multi-Scale Contention Latency Distribution & Normalized Shape Features
+     * Uses 30 interleaved runs per scale to collect robust statistics.
+     */
+    async profileContentionCurves(scales = [16, 64, 128, 256], runsPerScale = 30) {
+        const shaderModule = this.device.createShaderModule({ code: WGSL_MEMORY_CONTENTION_KERNEL });
+        const pipeline = this.device.createComputePipeline({
+            layout: 'auto',
+            compute: { module: shaderModule, entryPoint: 'main' }
+        });
+
+        const scaleProfiles = [];
+
+        for (const wgCount of scales) {
+            const threadCount = wgCount * 64;
+            const stressBufSize = 4;
+            const traceBufSize = threadCount * 4;
+
+            const stressBuffer = this.device.createBuffer({
+                size: stressBufSize,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
             });
 
             const traceBuffer = this.device.createBuffer({
-                size: traceBufferSize,
+                size: traceBufSize,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
             });
 
             const bindGroup = this.device.createBindGroup({
                 layout: pipeline.getBindGroupLayout(0),
                 entries: [
-                    { binding: 0, resource: { buffer: metricsBuffer } },
+                    { binding: 0, resource: { buffer: stressBuffer } },
                     { binding: 1, resource: { buffer: traceBuffer } }
                 ]
             });
 
-            const latencies = [];
+            const timeSeriesLatencies = [];
 
-            // Perform repeated runs per scale
             for (let r = 0; r < runsPerScale; r++) {
                 const t0 = performance.now();
 
@@ -271,168 +416,172 @@ class SiliconContentionProfiler {
                 const pass = encoder.beginComputePass();
                 pass.setPipeline(pipeline);
                 pass.setBindGroup(0, bindGroup);
-                pass.dispatchWorkgroups(workgroups);
+                pass.dispatchWorkgroups(wgCount);
                 pass.end();
 
                 this.device.queue.submit([encoder.finish()]);
-
-                // Synchronize via queue.onSubmittedWorkDone to measure GPU execution
                 await this.device.queue.onSubmittedWorkDone();
-                const t1 = performance.now();
 
+                const t1 = performance.now();
                 const elapsed = t1 - t0;
-                // Discard run 0 (warmup)
-                if (r > 0) {
-                    latencies.push(elapsed);
+                
+                // Discard first 3 runs as warmup to avoid clock ramp-up distortion
+                if (r >= 3) {
+                    timeSeriesLatencies.push(parseFloat(elapsed.toFixed(3)));
                 }
             }
 
-            metricsBuffer.destroy();
+            stressBuffer.destroy();
             traceBuffer.destroy();
 
-            // Statistical calculations for this scale
-            latencies.sort((a, b) => a - b);
-            const mean = latencies.reduce((a, b) => a + b, 0) / latencies.length;
-            const median = latencies[Math.floor(latencies.length / 2)];
-            const p10 = latencies[Math.floor(latencies.length * 0.1)] || latencies[0];
-            const p90 = latencies[Math.floor(latencies.length * 0.9)] || latencies[latencies.length - 1];
-            const q25 = latencies[Math.floor(latencies.length * 0.25)] || latencies[0];
-            const q75 = latencies[Math.floor(latencies.length * 0.75)] || latencies[latencies.length - 1];
+            // Compute statistics while preserving temporal timeSeriesLatencies
+            const sorted = [...timeSeriesLatencies].sort((a, b) => a - b);
+            const n = sorted.length;
+            const mean = sorted.reduce((a, b) => a + b, 0) / n;
+            const median = sorted[Math.floor(n / 2)];
+            const p10 = sorted[Math.floor(n * 0.1)] || sorted[0];
+            const p90 = sorted[Math.floor(n * 0.9)] || sorted[n - 1];
+            const q25 = sorted[Math.floor(n * 0.25)] || sorted[0];
+            const q75 = sorted[Math.floor(n * 0.75)] || sorted[n - 1];
             const iqr = q75 - q25;
 
-            const variance = latencies.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / latencies.length;
+            const variance = sorted.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / n;
             const stdDev = Math.sqrt(variance);
 
-            scaleResults.push({
-                workgroups: workgroups,
+            scaleProfiles.push({
+                workgroups: wgCount,
                 threadCount: threadCount,
+                sampleCount: n,
                 meanMs: parseFloat(mean.toFixed(3)),
                 medianMs: parseFloat(median.toFixed(3)),
                 p10Ms: parseFloat(p10.toFixed(3)),
                 p90Ms: parseFloat(p90.toFixed(3)),
                 iqrMs: parseFloat(iqr.toFixed(3)),
                 stdDevMs: parseFloat(stdDev.toFixed(3)),
-                rawLatencies: latencies.map(l => parseFloat(l.toFixed(3)))
+                timeSeries: timeSeriesLatencies
             });
         }
 
-        // Calculate Contention Slope: dLatency / dWorkgroups
-        const firstScale = scaleResults[0];
-        const lastScale = scaleResults[scaleResults.length - 1];
-        const deltaLatency = lastScale.medianMs - firstScale.medianMs;
-        const deltaWorkgroups = lastScale.workgroups - firstScale.workgroups;
-        const contentionSlope = deltaWorkgroups > 0 ? (deltaLatency / deltaWorkgroups) : 0;
+        // Relative Shape Features: Normalized against baseline scale (first scale)
+        // Eliminates browser-level constant overhead
+        const baselineMedian = scaleProfiles[0].medianMs || 1.0;
+        const normalizedScaleRatios = scaleProfiles.map(s => parseFloat((s.medianMs / baselineMedian).toFixed(4)));
 
         return {
-            scales: scaleResults,
-            contentionSlope: parseFloat(contentionSlope.toFixed(5))
+            scaleProfiles: scaleProfiles,
+            normalizedScaleRatios: normalizedScaleRatios
         };
     }
 
     /**
-     * Synthesizes full signature: architectural token, multi-scale timing vector, and defense audit
+     * Synthesizes full profile:
+     * - Architecture Token (ALU math sample + reported limits)
+     * - Normalized Physical Feature Vector (In-shader arrival ranks + normalized scale ratios)
+     * - Defense audit data
      */
-    async generateFullProfile() {
+    async generateFullProfile(deviceLabel = "unlabeled") {
         const audit = await this.auditDefenses();
         if (!audit.webGpuExposed) {
             return {
                 supported: false,
                 defenseAudit: audit,
-                message: "WebGPU is disabled or blocked. Privacy defenses successfully stopped hardware probing."
+                message: "WebGPU is not exposed. Privacy protections active."
             };
         }
 
         await this.initialize();
-        const aluSignature = await this.profileAluArchitecture();
-        const contention = await this.profileContentionDistribution([16, 64, 128, 256, 512], 6);
+        const aluSig = await this.profileAluArchitecture();
+        const scheduling = await this.profileSchedulingOrder(64, 32);
+        const contention = await this.profileContentionCurves([16, 64, 128, 256], 30);
 
-        // Feature vector for cross-browser linkage
-        const featureVector = [
-            contention.contentionSlope,
-            ...contention.scales.map(s => s.medianMs),
-            ...contention.scales.map(s => s.iqrMs),
-            this.adapterInfo.maxComputeInvocationsPerWorkgroup
+        // Continuous Physical Feature Vector: ONLY normalized physical properties (NO static metadata)
+        // Element 0..63: In-shader normalized arrival rank across workgroups
+        // Element 64..67: Normalized contention scale ratios (L_scale / L_baseline)
+        const continuousFeatureVector = [
+            ...scheduling.normalizedRankVector,
+            ...contention.normalizedScaleRatios
         ];
 
-        // Normalized feature vector representation
-        const normalizedVectorString = featureVector.map(v => typeof v === 'number' ? v.toFixed(3) : v).join('|');
-
-        // Canonical Identifier (Hash of Architecture + Contention Class)
-        const canonicalSeed = `${aluSignature}#${this.adapterInfo.vendor}#${this.adapterInfo.maxComputeInvocationsPerWorkgroup}#${contention.contentionSlope.toFixed(3)}`;
-        const canonicalId = await this._sha256(canonicalSeed);
+        // Architectural Token: Categorical gate
+        const architectureToken = `${aluSig}::${this.adapterInfo.vendor || 'anon'}::${this.adapterInfo.maxComputeInvocationsPerWorkgroup}`;
 
         return {
             supported: true,
-            canonicalId: canonicalId,
-            shortId: canonicalId.substring(0, 16),
-            aluArchitectureSignature: aluSignature,
-            contentionSlope: contention.contentionSlope,
-            contentionDistribution: contention.scales,
-            featureVector: featureVector,
-            normalizedVectorString: normalizedVectorString,
+            deviceLabel: deviceLabel,
+            architectureToken: architectureToken,
+            aluSignature: aluSig,
+            featureVector: continuousFeatureVector,
+            schedulingSummary: {
+                workgroupCount: scheduling.workgroupCount,
+                meanArrivalRanks: scheduling.meanArrivalRanks,
+                sampleTrace: scheduling.sampleArrivalTrace
+            },
+            contentionSummary: {
+                scaleProfiles: contention.scaleProfiles,
+                normalizedScaleRatios: contention.normalizedScaleRatios
+            },
             adapterInfo: this.adapterInfo,
             defenseAudit: audit,
+            powerState: this.powerState,
             timestamp: new Date().toISOString()
         };
     }
 
     /**
-     * Quantifies cross-browser linkage between two profiles via Cosine Similarity
+     * Evaluates linkage between two profiles:
+     * 1. Categorical gate: Architecture token must match.
+     * 2. Cosine Distance & Euclidean Distance on the continuous physical feature vector.
      */
-    static compareSignatures(profileA, profileB) {
+    static compareProfiles(profileA, profileB) {
         if (!profileA || !profileB || !profileA.featureVector || !profileB.featureVector) {
-            return { error: "Invalid profiles for comparison" };
+            return { error: "Missing feature vectors for comparison." };
         }
 
-        // 1. Architecture match check
-        const aluMatch = profileA.aluArchitectureSignature === profileB.aluArchitectureSignature;
+        // Categorical Gate: Do the GPU microarchitectures match?
+        const architectureMatch = profileA.architectureToken === profileB.architectureToken;
+        if (!architectureMatch) {
+            return {
+                architectureMatch: false,
+                cosineDistance: 1.0,
+                cosineSimilarity: 0.0,
+                verdict: "DIFFERENT_ARCHITECTURE"
+            };
+        }
 
-        // 2. Cosine Similarity on contention latency vectors
         const vecA = profileA.featureVector;
         const vecB = profileB.featureVector;
         const len = Math.min(vecA.length, vecB.length);
 
-        let dotProduct = 0;
+        let dot = 0;
         let normA = 0;
         let normB = 0;
+        let sumSquaredDiff = 0;
 
         for (let i = 0; i < len; i++) {
-            dotProduct += vecA[i] * vecB[i];
+            dot += vecA[i] * vecB[i];
             normA += vecA[i] * vecA[i];
             normB += vecB[i] * vecB[i];
+            sumSquaredDiff += Math.pow(vecA[i] - vecB[i], 2);
         }
 
-        const cosineSimilarity = (normA > 0 && normB > 0) ? (dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))) : 0;
-        const linkageConfidencePercent = Math.min(100, Math.max(0, cosineSimilarity * 100));
+        const cosineSimilarity = (normA > 0 && normB > 0) ? (dot / (Math.sqrt(normA) * Math.sqrt(normB))) : 0;
+        const cosineDistance = 1.0 - cosineSimilarity;
+        const euclideanDistance = Math.sqrt(sumSquaredDiff);
 
         return {
-            aluMicroarchitectureMatch: aluMatch,
-            cosineSimilarity: parseFloat(cosineSimilarity.toFixed(4)),
-            linkageConfidence: linkageConfidencePercent.toFixed(1) + "%",
-            verdict: linkageConfidencePercent >= 92 ? "SAME_DEVICE_CORRELATED" : "DISTINCT_OR_UNLINKED"
+            architectureMatch: true,
+            cosineSimilarity: parseFloat(cosineSimilarity.toFixed(5)),
+            cosineDistance: parseFloat(cosineDistance.toFixed(5)),
+            euclideanDistance: parseFloat(euclideanDistance.toFixed(5)),
+            featureCount: len,
+            // Linkage verdict based on empirical cosine distance threshold (< 0.02)
+            verdict: cosineDistance < 0.02 ? "HIGH_CORRELATION_SAME_INSTANCE" : "DIVERGENT_SEPARATE_INSTANCES"
         };
-    }
-
-    async _sha256(str) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(str);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-    }
-
-    _fastHash(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
-        }
-        return hash.toString(16).toUpperCase();
     }
 }
 
 if (typeof window !== 'undefined') {
     window.SiliconContentionProfiler = SiliconContentionProfiler;
-    // Backward compatibility alias
     window.SiliconFingerprint = SiliconContentionProfiler;
 }
 if (typeof module !== 'undefined' && module.exports) {

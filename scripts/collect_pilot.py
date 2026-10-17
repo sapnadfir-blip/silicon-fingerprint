@@ -41,9 +41,9 @@ class TraceCollectorHandler(http.server.SimpleHTTPRequestHandler):
             
             try:
                 trace_json = json.loads(post_data.decode('utf-8'))
-                device_id = trace_json.get('shortId', f"trace_{int(time.time())}")
+                label = trace_json.get('deviceLabel', 'unlabeled').replace(' ', '_').replace('/', '_')
                 timestamp = int(time.time())
-                filename = f"{device_id}_{timestamp}.json"
+                filename = f"{label}_{timestamp}.json"
                 filepath = os.path.join(DATA_DIR, filename)
                 
                 with open(filepath, 'w') as f:
